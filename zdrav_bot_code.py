@@ -203,8 +203,6 @@ async def auth_welcome(message: types.Message):
     await message.answer(f"Добро Пожаловать, {patient_firstname} {patient_secondname}!", reply_markup=welcome_menu)
 
 
-
-
 ''' 2.1 - сервис МОИ ЗАПИСИ '''
 
 
@@ -220,6 +218,7 @@ async def registration_offer(call: types.CallbackQuery):
     if all_recordings:
         for recording in all_recordings:
             i += 1
+            # показываем записи к врачам
             await call.message.answer(f"Запись {i}:\n"
                                       f"Дата и время приёма: {recording.get('dat_bgn')}\n"
                                       f"Специалист: {recording.get('spec')}\n"
@@ -235,7 +234,6 @@ async def registration_offer(call: types.CallbackQuery):
         item2 = types.InlineKeyboardButton("ГЛАВНОЕ МЕНЮ", callback_data='main_menu')
         to_main_menu.add(item2)
         await call.message.answer("У вас нет записей", reply_markup=to_main_menu)
-
 
 
 if __name__ == '__main__':
