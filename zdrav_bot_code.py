@@ -1,11 +1,8 @@
 # import xml.etree.ElementTree as ET
-import json
 
-import requests
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import StatesGroup, State
-import aiogram.utils.markdown as md
 from aiogram.types import ParseMode
 
 import config
@@ -20,7 +17,7 @@ API_TOKEN = config.TOKEN
 logging.basicConfig(level=logging.INFO)
 
 # Initialize bot and dispatcher
-bot = Bot(token=API_TOKEN)
+bot = Bot(token=API_TOKEN, parse_mode=types.ParseMode.HTML)
 storage = MemoryStorage()  # TODO сюда БД
 dp = Dispatcher(bot, storage=storage)
 
@@ -52,9 +49,17 @@ async def main_menu(call: types.CallbackQuery):
     item2 = types.InlineKeyboardButton("МОИ ЗАПИСИ", callback_data='my_recordings')
     item3 = types.InlineKeyboardButton("ШТРИХ-КОД", callback_data='entry_code')
     item4 = types.InlineKeyboardButton("ЗАКЛЮЧЕНИЯ", callback_data='doctor_res')
-    main_markup.add(item1, item2, item3, item4)
+    item5 = types.InlineKeyboardButton("Личный кабинет", callback_data='lk_menu')
+    main_markup.add(item1, item2, item3, item4, item5)
 
-    await call.message.answer("ГЛАВНОЕ МЕНЮ", reply_markup=main_markup)
+    if msg_ids_from_my_recordings:
+        for msg_id in msg_ids_from_my_recordings:
+            await bot.delete_message(chat_id=call.message.chat.id, message_id=msg_id.message_id)
+            msg_ids_from_my_recordings.clear()
+
+    await call.message.edit_text("📄 ГЛАВНОЕ МЕНЮ", reply_markup=main_markup)
+
+    # await call.message.edit_reply_markup(main_markup)   # изменения кнопок без отправки нового сообщения
 
 
 async def lk_question(message: types.Message):
@@ -64,7 +69,6 @@ async def lk_question(message: types.Message):
     lk_markup.add(item1, item2)
 
     await message.answer("Есть ли у Вас личный кабинет?", reply_markup=lk_markup)
-
     # one_step_back()
 
 
@@ -74,6 +78,9 @@ async def lk_question(message: types.Message):
 
 @dp.callback_query_handler(text="lk_not_exists")
 async def registration_offer(call: types.CallbackQuery):
+    await call.message.delete()  # удаление предыдущего сообщения
+    # await call.message.delete_reply_markup()  # удаление кнопок от предыдущего сообщения
+
     registration_question = types.InlineKeyboardMarkup(row_width=1)
     item1 = types.InlineKeyboardButton("Зарегистрироваться", callback_data='to_registration')
     item2 = types.InlineKeyboardButton("Продолжить без регистрации", callback_data='continue_without_reg')
@@ -95,6 +102,9 @@ async def registration_offer(call: types.CallbackQuery):
 
 @dp.callback_query_handler(text="to_registration")
 async def registration_link(call: types.CallbackQuery):
+    # await call.message.delete_reply_markup()  # удаление кнопок у предыдущего сообщения
+    await call.message.delete()  # удаление предыдущего сообщения
+
     await call.message.answer("Для регистрации перейдите по ссылке ниже на сайт СЗОНКЦ Соколова и заполните"
                               " форму регистрации.\n\n"
                               "🌐 https://med122.com/telemedicine/register/\n\n"
@@ -110,6 +120,9 @@ async def registration_link(call: types.CallbackQuery):
 
 @dp.callback_query_handler(text="continue_without_reg")
 async def registration_link(call: types.CallbackQuery):
+    # await call.message.delete_reply_markup()  # удаление кнопок у предыдущего сообщения
+    await call.message.delete()  # удаление предыдущего сообщения
+
     record_btn = types.InlineKeyboardMarkup(row_width=1)
     item1 = types.InlineKeyboardButton("Записаться к врачу", callback_data='record_to_doc')
     record_btn.add(item1)
@@ -122,6 +135,8 @@ async def registration_link(call: types.CallbackQuery):
 
 @dp.callback_query_handler(text="record_to_doc")
 async def registration_link(call: types.CallbackQuery):
+    await call.message.delete_reply_markup()  # удаление кнопок у предыдущего сообщения
+
     await call.message.answer("Запись к врачу через бота доступна "
                               "только зарегистрированным пользователям")
 
@@ -141,6 +156,8 @@ class RegForm(StatesGroup):
 
 @dp.callback_query_handler(text="lk_exists")
 async def authorisation_start(call: types.CallbackQuery):
+    await call.message.delete()  # удаление предыдущего сообщения
+
     await RegForm.login.set()  # задаем state (состояние) ввода логина
     await call.message.answer("Введите логин: \n(тот же, что Вы используете для "
                               "доступа к личному кабинету на сайте lk.med122.com)")
@@ -173,8 +190,15 @@ async def process_passwd(message: types.Message, state: FSMContext):
             db.save_token(message.chat.id, token)
 
             print("Authorization: SUCCESS!")
-            print(db.use_token(message.chat.id))
-            await auth_welcome(message)
+            # print(db.use_token(message.chat.id))
+
+            welcome_menu = types.InlineKeyboardMarkup(row_width=1)
+            item1 = types.InlineKeyboardButton("В личный кабинет ➡", callback_data='lk_menu')
+            welcome_menu.add(item1)
+            await message.answer("Добро пожаловать!\n\n"
+                                 "⚠ В целях безопасности рекомендуем Вам удалить из чата сообщения с "
+                                 "логином и паролем от личного кабинета.", reply_markup=welcome_menu)
+
             # get_info = mis_arianda.get_patient_info(db.use_token(message.chat.id))
             # patient_lastname = get_info.get("lastname")
             # patient_firstname = get_info.get("firstname")
@@ -188,50 +212,67 @@ async def process_passwd(message: types.Message, state: FSMContext):
             await lk_question(message)
 
 
-async def auth_welcome(message: types.Message):
+'''' lk_menu - стартовое меню '''
+
+
+@dp.callback_query_handler(text="lk_menu")
+async def auth_welcome(call: types.CallbackQuery):
     welcome_menu = types.InlineKeyboardMarkup(row_width=1)
     item1 = types.InlineKeyboardButton("ГЛАВНОЕ МЕНЮ", callback_data='main_menu')
     item2 = types.InlineKeyboardButton("Информация о клинике", callback_data='clinic_info')
     item3 = types.InlineKeyboardButton("Мои данные", callback_data='my_info')
     welcome_menu.add(item1, item2, item3)
 
-    get_info = mis_arianda.get_patient_info(db.use_token(message.chat.id))
+    get_info = mis_arianda.get_patient_info(db.use_token(call.message.chat.id))
     patient_lastname = get_info.get("lastname")
     patient_firstname = get_info.get("firstname")
     patient_secondname = get_info.get("secondname")
     print(patient_lastname + patient_secondname + patient_firstname)
-    await message.answer(f"Добро Пожаловать, {patient_firstname} {patient_secondname}!", reply_markup=welcome_menu)
+    await call.message.edit_text(f"Личный кабинет: {patient_firstname} {patient_secondname} {patient_lastname}",
+                                 reply_markup=welcome_menu)
 
 
 ''' 2.1 - сервис МОИ ЗАПИСИ '''
 
+msg_ids_from_my_recordings = []
+
 
 @dp.callback_query_handler(text="my_recordings")
-async def registration_offer(call: types.CallbackQuery):
+async def recordings(call: types.CallbackQuery):
+    await call.message.delete()  # удаление предыдущего сообщения
+
     cancel_rec_btn = types.InlineKeyboardMarkup(row_width=1)
+    cancel_rec_menu_btn = types.InlineKeyboardMarkup(row_width=1)
     item1 = types.InlineKeyboardButton("Отменить запись", callback_data='cancel_recording')
     item2 = types.InlineKeyboardButton("ГЛАВНОЕ МЕНЮ", callback_data='main_menu')
-    cancel_rec_btn.add(item1, item2)
+    cancel_rec_btn.add(item1)
+    cancel_rec_menu_btn.add(item1, item2)
 
     all_recordings = mis_arianda.get_recordings(db.use_token(call.message.chat.id))
+
     i = 0
+
     if all_recordings:
         for recording in all_recordings:
             i += 1
+            recording_data = (f"<b>Запись №{i}:</b>\n"
+                              f"📅 {recording.get('dat_bgn')}\n"
+                              f"🩺️ {recording.get('spec')}\n"
+                              f"👨‍⚕ {recording.get('lastname')} "
+                              f"{recording.get('firstname')} {recording.get('secondname')}\n"
+                              f"🏥 {recording.get('depname')}\n"
+                              f"📍 {recording.get('addr')}\n"
+                              f"Кабинет: {recording.get('cab')}\n"
+                              f"☎ {recording.get('phone')}")
             # показываем записи к врачам
-            await call.message.answer(f"Запись {i}:\n"
-                                      f"Дата и время приёма: {recording.get('dat_bgn')}\n"
-                                      f"Специалист: {recording.get('spec')}\n"
-                                      f"ФИО врача: {recording.get('lastname')} "
-                                      f"{recording.get('firstname')} {recording.get('secondname')}\n"
-                                      f"Место: {recording.get('depname')}\n"
-                                      f"Адрес: {recording.get('addr')}\n"
-                                      f"Кабинет: {recording.get('cab')}\n"
-                                      f"Телефон:  {recording.get('phone')}",
-                                      reply_markup=cancel_rec_btn)
-    else:
+            if recording == all_recordings[-1]:  # если запись последняя, то прикрепляем еще кнопку ГЛАВНОЕ МЕНЮ
+                await call.message.answer(recording_data, reply_markup=cancel_rec_menu_btn)
+            else:
+                message_id = await call.message.answer(recording_data, reply_markup=cancel_rec_btn)
+                msg_ids_from_my_recordings.append(message_id)
+
+    else:  # обработка случая, если нет записей
         to_main_menu = types.InlineKeyboardMarkup(row_width=1)
-        item2 = types.InlineKeyboardButton("ГЛАВНОЕ МЕНЮ", callback_data='main_menu')
         to_main_menu.add(item2)
         await call.message.answer("У вас нет записей", reply_markup=to_main_menu)
 

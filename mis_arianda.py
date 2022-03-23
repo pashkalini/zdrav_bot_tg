@@ -2,15 +2,20 @@ import requests
 import config
 
 # доступы к API
+import zdrav_bot_code
+
 API_LOGIN = config.API_LOGIN
 PATIENT_INFO = config.PATIENT_INFO
 RECORDINGS = config.RECORDINGS
 
 
+# TODO продумать вариант повторной авторизации на случае обновления токена
+# авторизация - ввод логина/пароля -> получение токена
 def auth(login, password):
     return requests.post(API_LOGIN, json={'login': login, 'passwd': password})
 
 
+# получение информации по методу, в котором обязательный параметр ТОЛЬКО токен
 def only_token_data(method, token):
     return requests.get(method, headers={'Authorization': 'TOKEN ' + token}).json().get("data")
 
