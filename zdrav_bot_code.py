@@ -1,5 +1,5 @@
 # import xml.etree.ElementTree as ET
-
+import requests
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import StatesGroup, State
@@ -26,7 +26,7 @@ dp = Dispatcher(bot, storage=storage)
 @dp.message_handler(commands=['start'])
 async def welcome(message: types.Message):
     await message.answer("Добро пожаловать, {0.first_name}!"
-                         "".format(message.from_user, bot.get_me()),
+                         "".format(message.from_user),
                          parse_mode='html')
 
     with open("start_info_message.txt", 'r', encoding='utf8') as intro_f:
@@ -52,10 +52,10 @@ async def main_menu(call: types.CallbackQuery):
     item5 = types.InlineKeyboardButton("Личный кабинет", callback_data='lk_menu')
     main_markup.add(item1, item2, item3, item4, item5)
 
-    if msg_ids_from_my_recordings:
+    if msg_ids_from_my_recordings:  # удаление сообщений в сервисе МОИ ЗАПИСИ по id, если таковые имеются
         for msg_id in msg_ids_from_my_recordings:
             await bot.delete_message(chat_id=call.message.chat.id, message_id=msg_id.message_id)
-            msg_ids_from_my_recordings.clear()
+        msg_ids_from_my_recordings.clear()
 
     await call.message.edit_text("📄 ГЛАВНОЕ МЕНЮ", reply_markup=main_markup)
 
@@ -148,33 +148,59 @@ async def registration_link(call: types.CallbackQuery):
 ''' 2 - у пользователя есть ЛК: переход к процессу авторизации (ввод логина и пароля)'''
 
 
+#  повторная авторизация
+async def repeat_auth(message: types.Message, method):
+    if method == "error":
+        await message.delete()
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        item = types.InlineKeyboardButton("Авторизоваться 🔐", callback_data='lk_exists')
+        item2 = types.InlineKeyboardButton("Продолжить без авторизации", callback_data='lk_not_exists')
+        markup.add(item, item2)
+
+        await message.answer(text="Вас давно не было. Для продолжения использования всех сервисов"
+                                  "необходимо повторно войти в личный кабинет.", reply_markup=markup)
+    else:
+        return
+
+
 # Используем состояния (States) для обработки введенных логина и пароля
 class RegForm(StatesGroup):
     login = State()  # Задаем состояние
     passwd = State()
 
 
+msg_ids_from_auth = []
+
+
+#  переход к процессу авторизации при нажатии на конпку с callback_data = lk_exists
 @dp.callback_query_handler(text="lk_exists")
 async def authorisation_start(call: types.CallbackQuery):
     await call.message.delete()  # удаление предыдущего сообщения
 
     await RegForm.login.set()  # задаем state (состояние) ввода логина
-    await call.message.answer("Введите логин: \n(тот же, что Вы используете для "
-                              "доступа к личному кабинету на сайте lk.med122.com)")
+    message_id = await call.message.answer("Введите логин: \n(тот же, что Вы используете для "
+                                           "доступа к личному кабинету на сайте lk.med122.com)")
+    msg_ids_from_auth.append(message_id)  # сохраняем id сообщения для последующего удаления, см. ф-цию auth_welcome
 
 
+#  в состоянии 1 берем логин
 @dp.message_handler(state=RegForm.login)
 async def process_name(message: types.Message, state: FSMContext):
+    await message.delete()  # # чудо-удаление логина
     #  Второй аргумент state типа FSMContext. Через него можно получить данные от FSM-бэкенда.
     async with state.proxy() as data:
         data['login'] = message.text  # сохраняем введенный пользователем логин
         await RegForm.next()  # переходим к следующему состоянию - у нас это ввод пароля
-        await message.answer("Введите пароль:")
+
+        message_id = await message.answer("Введите пароль:")
+        msg_ids_from_auth.append(message_id)  # сохраняем id сообщения для последующего удаления, см. ф-цию auth_welcome
         await state.update_data(passwd=message.text)  # обновляем data и state для сохранения пароля
 
 
+# в состоянии 2 берем пароль
 @dp.message_handler(state=RegForm.passwd)
 async def process_passwd(message: types.Message, state: FSMContext):
+    await message.delete()  # чудо-удаление пароля
     async with state.proxy() as data:
         data['passwd'] = message.text  # сохраняем введенный пароль
         await state.finish()
@@ -186,8 +212,8 @@ async def process_passwd(message: types.Message, state: FSMContext):
 
         if login_response.json().get("success"):
             # если введены верные логин и пароль, то в ответ нам приходит токен для доступа к данным
-            token = login_response.json().get("data").get("token")  # ToDo нужно сохранять токен в БД вместе с  chat_id
-            db.save_token(message.chat.id, token)
+            token = login_response.json().get("data").get("token")
+            db.save_token(message.chat.id, token)  # сохраняем токен в БД вместе с chat_id
 
             print("Authorization: SUCCESS!")
             # print(db.use_token(message.chat.id))
@@ -195,10 +221,9 @@ async def process_passwd(message: types.Message, state: FSMContext):
             welcome_menu = types.InlineKeyboardMarkup(row_width=1)
             item1 = types.InlineKeyboardButton("В личный кабинет ➡", callback_data='lk_menu')
             welcome_menu.add(item1)
-            await message.answer("Добро пожаловать!\n\n"
-                                 "⚠ В целях безопасности рекомендуем Вам удалить из чата сообщения с "
-                                 "логином и паролем от личного кабинета.", reply_markup=welcome_menu)
-
+            await message.answer("Добро пожаловать!\n\n", reply_markup=welcome_menu)
+            # "⚠ В целях безопасности рекомендуем Вам удалить из чата сообщения с "
+            # "логином и паролем от личного кабинета."
             # get_info = mis_arianda.get_patient_info(db.use_token(message.chat.id))
             # patient_lastname = get_info.get("lastname")
             # patient_firstname = get_info.get("firstname")
@@ -212,16 +237,23 @@ async def process_passwd(message: types.Message, state: FSMContext):
             await lk_question(message)
 
 
-'''' lk_menu - стартовое меню '''
-
-
+# СТАРТОВОЕ МЕНЮ
 @dp.callback_query_handler(text="lk_menu")
 async def auth_welcome(call: types.CallbackQuery):
     welcome_menu = types.InlineKeyboardMarkup(row_width=1)
     item1 = types.InlineKeyboardButton("ГЛАВНОЕ МЕНЮ", callback_data='main_menu')
     item2 = types.InlineKeyboardButton("Информация о клинике", callback_data='clinic_info')
     item3 = types.InlineKeyboardButton("Мои данные", callback_data='my_info')
-    welcome_menu.add(item1, item2, item3)
+    item4 = types.InlineKeyboardButton("Оставить отзыв ✍", callback_data='feedback')
+    welcome_menu.add(item1, item2, item3, item4)
+
+    await repeat_auth(call.message, mis_arianda.get_patient_info(db.use_token(call.message.chat.id)))
+
+    if msg_ids_from_auth:  # удаление сообщений о вводе логина и пароля
+        for msg_id in msg_ids_from_auth:
+            # print(msg_id)
+            await bot.delete_message(chat_id=call.message.chat.id, message_id=msg_id.message_id)
+        msg_ids_from_auth.clear()
 
     get_info = mis_arianda.get_patient_info(db.use_token(call.message.chat.id))
     patient_lastname = get_info.get("lastname")
@@ -230,6 +262,71 @@ async def auth_welcome(call: types.CallbackQuery):
     print(patient_lastname + patient_secondname + patient_firstname)
     await call.message.edit_text(f"Личный кабинет: {patient_firstname} {patient_secondname} {patient_lastname}",
                                  reply_markup=welcome_menu)
+
+
+#  раздел О КЛИНИКЕ
+@dp.callback_query_handler(text="clinic_info")
+async def about_clinic(call: types.CallbackQuery):
+    back_btn = types.InlineKeyboardMarkup(row_width=1)
+    item1 = types.InlineKeyboardButton("Назад ↩", callback_data='lk_menu')
+    back_btn.add(item1)
+    with open("about_clinic.txt", 'r', encoding='utf8') as about_f:
+        await call.message.edit_text(about_f.read(), reply_markup=back_btn)
+
+
+#  раздел МОИ ДАННЫЕ
+@dp.callback_query_handler(text="my_info")
+async def patient_info(call: types.CallbackQuery):
+    back_btn = types.InlineKeyboardMarkup(row_width=1)
+    item1 = types.InlineKeyboardButton("Назад ↩", callback_data='lk_menu')
+    back_btn.add(item1)
+    get_info = mis_arianda.get_patient_info(db.use_token(call.message.chat.id))
+
+    await call.message.edit_text(f"ФИО: {get_info.get('lastname')} {get_info.get('firstname')} "
+                                 f"{get_info.get('secondname')}\n"
+                                 f"Дата рождения: {get_info.get('birthdatestr')}\n"
+                                 f"Телефон: {get_info.get('phone')}\n"
+                                 f"Моб. телефон: {get_info.get('cellular')}\n"
+                                 f"E-mail: {get_info.get('email')}\n"
+                                 f"СНИЛС: {get_info.get('snils')}\n"
+                                 f"Адрес: {get_info.get('address_proj')}",
+                                 reply_markup=back_btn)
+
+
+#  раздел ОСТАВИТЬ ОТЗЫВ
+# Используем состояния (States) для обработки отзыва пользователя
+class Feedback(StatesGroup):
+    feedback = State()  # Задаем состояние
+    end = State()
+
+
+@dp.callback_query_handler(text="feedback")
+async def get_feedback(call: types.CallbackQuery):
+    await Feedback.feedback.set()  # задаем state (состояние) ввода логина
+    await call.message.edit_text("Спасибо Вам за использование нашего чат-бота!\n\nЧтобы он становился лучше, "
+                                 "напишите свои пожелания и замечания одним сообщением.")
+
+
+@dp.message_handler(state=Feedback.feedback)
+async def process_feedback(message: types.Message, state: FSMContext):
+    async with state.proxy() as data:
+        data['feedback_text'] = message.text  # сохраняем введенный пользователем отзыв
+        await state.finish()
+
+        get_info = mis_arianda.get_patient_info(db.use_token(message.chat.id))
+
+        requests.get('https://api.telegram.org/bot{}/sendMessage'.format(config.TOKEN), params=dict(
+            chat_id='@med122_feedback',
+            text=f"{get_info.get('lastname')} {get_info.get('firstname')} "
+                 f"{get_info.get('secondname')} (@{message.from_user.username}, {get_info.get('cellular')}) оставил отзыв: "
+                 f" {data['feedback_text']}"
+        ))
+
+        back_btn = types.InlineKeyboardMarkup(row_width=1)
+        item1 = types.InlineKeyboardButton("Назад ↩", callback_data='lk_menu')
+        back_btn.add(item1)
+
+        await message.answer("Спасибо! Мы обязательно учтём Ваше мнение.", reply_markup=back_btn)
 
 
 ''' 2.1 - сервис МОИ ЗАПИСИ '''
@@ -248,6 +345,7 @@ async def recordings(call: types.CallbackQuery):
     cancel_rec_btn.add(item1)
     cancel_rec_menu_btn.add(item1, item2)
 
+    await repeat_auth(call.message, mis_arianda.get_recordings(db.use_token(call.message.chat.id)))
     all_recordings = mis_arianda.get_recordings(db.use_token(call.message.chat.id))
 
     i = 0
