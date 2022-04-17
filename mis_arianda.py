@@ -1,3 +1,5 @@
+import datetime
+
 import requests
 from aiogram.types import message
 
@@ -13,6 +15,8 @@ DOC_LIST = config.DOC_LIST
 RNUMB_LIST = config.RNUMB_LIST
 RNUMB_INFO = config.RNUMB_INFO
 RNUMB_REC = config.RNUMB_REC
+HISTORY_LIST = config.HISTORY_LIST
+HISTORY_PDF = config.HISTORY_PDF
 
 
 # TODO продумать вариант повторной авторизации на случае обновления токена -
@@ -204,3 +208,37 @@ def get_rnumb_info(token, rnumb_id):
 # запись - запись на талон
 def create_rec(token, rnumb_id):
     return requests.get(RNUMB_REC, headers={'Authorization': 'TOKEN ' + token}, params={'rnumbID': rnumb_id})
+
+
+# заключения - список посещений
+def get_history_list(token):
+    today = datetime.datetime.today()
+    f_today = datetime.datetime.strftime(today, '%Y-%m-%d')
+    all_data = requests.get(HISTORY_LIST, headers={'Authorization': 'TOKEN ' + token},
+                            params={'start': '1', 'end': '10000', 'beginDate': '2015-02-01', 'endDate': f_today}).json()
+    data = all_data.get("data")
+    error = "error"
+
+    if not all_data.get("success"):
+        return error
+    else:
+        all_visits = []
+
+        for visit in data:
+            all_visits.append({"keyid": visit.get('keyid'),
+                               "typetext": visit.get('typetext'),
+                               "typehistory": visit.get('typehistory'),
+                               "dat": visit.get('dat'),
+                               "doctor": visit.get('doctor'),
+                               "doctorid": visit.get('doctorid'),
+                               "spec": visit.get('spec'),
+                               "sortcode": visit.get('sortcode'),
+                               "dep_name": visit.get('dep_name'),
+                               "sched_exists_for_dd_on_visit": visit.get('sched_exists_for_dd_on_visit')
+                               })
+
+        return all_visits
+
+
+def get_visit_pdf(visit_tp, visit_id):
+    return requests.get(HISTORY_PDF, params={'tp': visit_tp, 'id': visit_id})
