@@ -155,6 +155,7 @@ async def authorisation_start(call: types.CallbackQuery):
     await RegForm.login.set()  # задаем state (состояние) ввода логина
     message_id = await call.message.edit_text("Введите логин: \n(тот же, что Вы используете для "
                                               "доступа к личному кабинету на сайте lk.med122.com)")
+    msg_ids_from_auth.clear()
     msg_ids_from_auth.append(message_id)  # сохраняем id сообщения для последующего удаления, см. ф-цию auth_welcome
 
 
@@ -227,6 +228,7 @@ async def restart_welcome(call: types.CallbackQuery):
 # СТАРТОВОЕ МЕНЮ
 @dp.callback_query_handler(text="lk_menu")
 async def auth_welcome(call: types.CallbackQuery):
+    await call.answer()  # чтобы не было loading....
     #  повторная авторизация, если необходимо
     rep_auth = await repeat_auth(call.message, mis_arianda.get_patient_info(db.use_token(call.message.chat.id)))
 
@@ -243,11 +245,17 @@ async def auth_welcome(call: types.CallbackQuery):
 
         # TODO возникает ошибка "Message can't be deleted for everyone" при повторной авторизации - не удаляются
         #  сообщения и не пройти дальше в личный кабинет из-за этого
-        if msg_ids_from_auth:  # удаление сообщений о вводе логина и пароля
-            for msg_id in msg_ids_from_auth:
-                # print(msg_id)
-                await bot.delete_message(chat_id=call.message.chat.id, message_id=msg_id.message_id)
-            msg_ids_from_auth.clear()
+        try:
+            if msg_ids_from_auth:  # удаление сообщений о вводе логина и пароля
+                print(msg_ids_from_auth)
+                for msg_id in msg_ids_from_auth:
+                    print(msg_id.message_id)
+                    await bot.delete_message(chat_id=call.message.chat.id, message_id=msg_id.message_id)
+                msg_ids_from_auth.clear()
+        except Exception as ex:
+            print(ex)
+            print("Ошибка с удалением сообщений логина/пароля")
+            pass
 
         get_info = mis_arianda.get_patient_info(db.use_token(call.message.chat.id))
         patient_lastname = get_info.get("lastname")
@@ -265,7 +273,7 @@ async def auth_welcome(call: types.CallbackQuery):
 # Главное меню
 @dp.callback_query_handler(text="main_menu")
 async def main_menu(call: types.CallbackQuery):
-    await call.answer()
+    await call.answer()  # чтобы не было loading....
     main_markup = types.InlineKeyboardMarkup(row_width=2)
     item1 = types.InlineKeyboardButton("ЗАПИСАТЬСЯ", callback_data='record')
     item2 = types.InlineKeyboardButton("МОИ ЗАПИСИ", callback_data='my_recordings')
@@ -290,6 +298,8 @@ async def main_menu(call: types.CallbackQuery):
 #  раздел О КЛИНИКЕ
 @dp.callback_query_handler(text="clinic_info")
 async def about_clinic(call: types.CallbackQuery):
+    await call.answer()  # чтобы не было loading....
+
     back_btn = types.InlineKeyboardMarkup(row_width=1)
     item1 = types.InlineKeyboardButton("Назад ↩", callback_data='lk_menu')
     back_btn.add(item1)
@@ -303,6 +313,7 @@ async def about_clinic(call: types.CallbackQuery):
 #  раздел МОИ ДАННЫЕ
 @dp.callback_query_handler(text="my_info")
 async def patient_info(call: types.CallbackQuery):
+    await call.answer()  # чтобы не было loading....
     get_info = mis_arianda.get_patient_info(db.use_token(call.message.chat.id))
     #  повторная авторизация, если необходимо
     rep_auth = await repeat_auth(call.message, get_info)
@@ -426,6 +437,7 @@ rnumb_cb = CallbackData("cancel", "rnumb_id")
 # сервис МОИ ЗАПИСИ - отмена записи
 @dp.callback_query_handler(text="cancel_recording")
 async def canc_rec(call: types.CallbackQuery):
+    await call.answer()  # чтобы не было loading....
     all_recordings = mis_arianda.get_recordings(db.use_token(call.message.chat.id))
     #  повторная авторизация, если необходимо
     rep_auth = await repeat_auth(call.message, all_recordings)
@@ -456,6 +468,7 @@ async def canc_rec(call: types.CallbackQuery):
 # @dp.callback_query_handler(lambda c: c.data and c.data.startswith('cancel'))
 @dp.callback_query_handler(rnumb_cb.filter())
 async def canc_rec2(call: types.CallbackQuery, callback_data: dict):
+    await call.answer()  # чтобы не было loading....
     to_menu_btn = types.InlineKeyboardMarkup(row_width=1)
     # item = types.InlineKeyboardButton("ГЛАВНОЕ МЕНЮ", callback_data='main_menu')
     to_menu_btn.add(main_menu_item)
@@ -474,6 +487,7 @@ rnumb_spec_cb = CallbackData("spec", "spec_id")
 # 1. список специальностей
 @dp.callback_query_handler(text="record")
 async def show_spec_list(call: types.CallbackQuery):
+    await call.answer()  # чтобы не было loading....
     # await call.message.delete()  # удаление предыдущего сообщения
     all_spec = mis_arianda.get_spec_list(db.use_token(call.message.chat.id))
     #  повторная авторизация, если необходимо
@@ -529,6 +543,7 @@ async def show_doc_list(call: types.CallbackQuery, callback_data: dict):
 
         doc_list_menu.add(back_btn)
         await call.message.edit_text("👨‍⚕️Выберите врача", reply_markup=doc_list_menu)
+
 
 # используем фабрику коллбэков для передачи id специальности, доктора и даты приема
 rnumb_date_cb = CallbackData("spec", "spec_id", "doc_id", "date")
@@ -609,6 +624,7 @@ async def show_time_list(call: types.CallbackQuery, callback_data: dict):
         time_list_menu.add(back_btn)
         await call.message.edit_text("⏰ Выберите удобное время приема", reply_markup=time_list_menu)
 
+
 # используем фабрику коллбэков для передачи id талона
 rnumb_create_rec_cb = CallbackData('create_rec', 'rnumb_id')
 
@@ -640,7 +656,8 @@ async def rec_confirmation(call: types.CallbackQuery, callback_data: dict):
                         f"🏥 {date.get('rnumb_depname')}\n"
                         f"📍 {date.get('rnumb_addr')}\n"
                         f"Кабинет: {date.get('rnumb_cab')}\n"
-                        f"☎ {date.get('rnumb_phone')}")
+                        f"☎ {date.get('rnumb_phone')}\n\n"
+                        f"<b>₽₽</b> {date.get('rnumb_calc_sum')} рублей")
 
             await call.message.edit_text(rec_info, reply_markup=confirm_rec)
 
@@ -667,13 +684,14 @@ async def create_recording(call: types.CallbackQuery, callback_data: dict):
 
 @dp.callback_query_handler(text="to_pay")
 async def payment_confirmation(call: types.CallbackQuery):
+    await call.answer()  # чтобы не было loading....
     to_main_menu = types.InlineKeyboardMarkup(row_width=1)
     to_main_menu.add(main_menu_item)
 
     await call.message.edit_text('✅ <b>Оплата прошла успешно, запись подтверждена.</b>\n\n'
                                  'Свои записи Вы можете найти в ГЛАВНОЕ МЕНЮ->МОИ ЗАПИСИ.\n\n'
                                  'За сутки до приёма вы получите напоминание о приеме и штрих-код для входа. '
-                                 'Он также будет находится в ГЛАВНОЕ МЕНЮ->ШТРИХ-КОД НА ВХОД.',
+                                 'Он также будет находиться в ГЛАВНОЕ МЕНЮ->ШТРИХ-КОД НА ВХОД.',
                                  reply_markup=to_main_menu)
 
 
@@ -681,6 +699,7 @@ async def payment_confirmation(call: types.CallbackQuery):
 
 # используем фабрику коллбэков для передачи
 visit_history_cb = CallbackData('visit', 'visit_id', 'visit_tp', 'visit_date')
+
 
 # 1. список посещений
 @dp.callback_query_handler(text="doctor_res")
@@ -703,8 +722,9 @@ async def show_history(call: types.CallbackQuery):
             visit_tp = visit.get('typehistory')
             # добавляем в цикле необходимое кол-во кнопок с callback_data равной key_id = id посещения
             visit_item = types.InlineKeyboardButton(f'📋 {visit_date}, {visit_spec}',
-                                                   callback_data=visit_history_cb.new(visit_id=visit_id, visit_tp=visit_tp,
-                                                                                      visit_date=visit_date))
+                                                    callback_data=visit_history_cb.new(visit_id=visit_id,
+                                                                                       visit_tp=visit_tp,
+                                                                                       visit_date=visit_date))
             visit_list_menu.add(visit_item)
 
         visit_list_menu.add(back_btn)
