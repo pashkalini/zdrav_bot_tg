@@ -130,12 +130,12 @@ def get_doc_list(token, spec_id):
                             "doc_l_name": doc.get("l_name"),
                             "doc_f_name": doc.get("f_name"),
                             "doc_s_name": doc.get("s_name"),
-                            # не используем то, что ниже
+
                             "doc_note": doc.get("note"),
                             "doc_dat_bgn": doc.get("dat_bgn"),
                             "doc_dat_end": doc.get("dat_end"),
                             "doc_rcount": doc.get("rcount"),
-                            "doc_srvlist": doc.get("dat_srvlist")
+                            "doc_srvlist": doc.get("srvlist")
                             })
 
         return all_doc
@@ -206,14 +206,16 @@ def get_rnumb_info(token, rnumb_id):
 
 
 # запись - запись на талон
-def create_rec(token, rnumb_id):
-    return requests.get(RNUMB_REC, headers={'Authorization': 'TOKEN ' + token}, params={'rnumbID': rnumb_id})
+def create_rec(token, rnumb_id, srv_id):
+    return requests.get(RNUMB_REC, headers={'Authorization': 'TOKEN ' + token},
+                                   params={'rnumbID': rnumb_id, 'srvID': srv_id})
 
 
 # заключения - список посещений
 def get_history_list(token):
     today = datetime.datetime.today()
     f_today = datetime.datetime.strftime(today, '%Y-%m-%d')
+    # TODO реализовать возможность по кнопке выводить еще 10 записей, убрать 1000, в запросе ровно 10, 1..10, 11...20
     all_data = requests.get(HISTORY_LIST, headers={'Authorization': 'TOKEN ' + token},
                             params={'start': '1', 'end': '10000', 'beginDate': '2015-02-01', 'endDate': f_today}).json()
     data = all_data.get("data")
@@ -240,5 +242,6 @@ def get_history_list(token):
         return all_visits
 
 
+# заключения - PDF-файл
 def get_visit_pdf(visit_tp, visit_id):
     return requests.get(HISTORY_PDF, params={'tp': visit_tp, 'id': visit_id})
