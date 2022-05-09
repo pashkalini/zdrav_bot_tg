@@ -422,6 +422,7 @@ async def recordings(call: types.CallbackQuery):
                 my_rec.append(recording_data)
                 # показываем записи к врачам
                 # if recording == all_recordings[-1]:  # если запись последняя, то прикрепляем еще кнопку ГЛАВНОЕ МЕНЮ
+
             await call.message.edit_text("<b><u>МОИ ЗАПИСИ</u></b>\n\n" + '\n\n'.join(my_rec),
                                          reply_markup=cancel_rec_menu_btn)
             # else:
@@ -439,6 +440,7 @@ async def recordings(call: types.CallbackQuery):
 rnumb_cb = CallbackData("cancel", "rnumb_id")
 
 
+# TODO разобраться с отменой ОПЛАЧЕННОЙ записи - пока API не позволяет этого сделать
 # сервис МОИ ЗАПИСИ - отмена записи
 @dp.callback_query_handler(text="cancel_recording")
 async def canc_rec(call: types.CallbackQuery):
@@ -580,7 +582,7 @@ async def show_srv_list(call: types.CallbackQuery, callback_data: dict):
             if str(doc_id) == clb_doc_id:
                 doc_srvlist = doc.get('doc_srvlist')
                 # print(doc_srvlist)
-                if  len(doc_srvlist) == 0:
+                if len(doc_srvlist) == 0:
                     await call.message.edit_text("У данного специалиста нет услуг, "
                                                  "на которые можно записаться онлайн.",
                                                  reply_markup=only_back_btn_menu)
@@ -604,8 +606,8 @@ async def show_srv_list(call: types.CallbackQuery, callback_data: dict):
 
                 if cnt == 0:
                     await call.message.edit_text("У данного специалиста нет услуг, "
-                                                     "на которые можно записаться онлайн.",
-                                                     reply_markup=only_back_btn_menu)
+                                                 "на которые можно записаться онлайн.",
+                                                 reply_markup=only_back_btn_menu)
                     return
                 # DONE разобрать случай, когда нет выбора услуги (такого не будет в реальности, но есть в тестовом API)
 
@@ -621,7 +623,7 @@ rnumb_date_cb = CallbackData("spec", "spec_id", "doc_id", "srv_id", "date")
 @dp.callback_query_handler(rnumb_rec_srvid_cb.filter())
 async def show_date_list(call: types.CallbackQuery, callback_data: dict):
     await call.message.edit_text("Идёт загрузка ⏳\nПожалуйста, подождите...")
-
+    # TODO подумать над тем, чтобы выводить выбранную специализацию, врача, время и тд на каждом шаге
     all_date = mis_arianda.get_rnumb_list(db.use_token(call.message.chat.id),
                                           callback_data['spec_id'], callback_data['doc_id'])
     # повторная авторизация, если необходимо
@@ -713,7 +715,6 @@ rnumb_create_rec_cb = CallbackData('create_rec', 'srv_id', 'rnumb_id')
 async def rec_confirmation(call: types.CallbackQuery, callback_data: dict):
     await call.answer()
     all_date = mis_arianda.get_rnumb_info(db.use_token(call.message.chat.id), callback_data['rec_rnumb_id'])
-    all_doc = mis_arianda.get_doc_list(db.use_token(call.message.chat.id), callback_data['spec_id'])
     # повторная авторизация, если необходимо
     rep_auth = await repeat_auth(call.message, all_date)
 
@@ -744,10 +745,14 @@ async def rec_confirmation(call: types.CallbackQuery, callback_data: dict):
             await call.message.edit_text(rec_info, reply_markup=confirm_rec)
 
 
+# используем фабрику коллбэков для передачи id талона
+create_payment_cb = CallbackData('pay', 'srv_id', 'rnumb_id')
+
+
 # 6. подтверждение записи - запись на талон + оплата
 @dp.callback_query_handler(rnumb_create_rec_cb.filter())
 async def create_recording(call: types.CallbackQuery, callback_data: dict):
-    await call.answer()
+    await call.message.edit_text("Идёт загрузка ⏳\nПожалуйста, подождите...")
     all_date = mis_arianda.create_rec(db.use_token(call.message.chat.id), callback_data['rnumb_id'],
                                       callback_data['srv_id']).json()
     # повторная авторизация, если необходимо
@@ -756,26 +761,53 @@ async def create_recording(call: types.CallbackQuery, callback_data: dict):
     if rep_auth == "Повторная авторизация":
         return
     else:
-        # TODO настроить оплату
+        # DONE настроить оплату - настроена тестовая оплата
+        pay_link = mis_arianda.get_pay_link(db.use_token(call.message.chat.id), callback_data['rnumb_id'],
+                                            callback_data['srv_id'])
+
+        print(mis_arianda.create_payment(db.use_token(call.message.chat.id), callback_data['rnumb_id'],
+                                          callback_data['srv_id']))
+        print(mis_arianda.get_order_to_pay(db.use_token(call.message.chat.id), callback_data['rnumb_id'],
+                                         callback_data['srv_id']))
+        print (pay_link)
+
         payment_menu = types.InlineKeyboardMarkup(row_width=3)
-        pay_btn = types.InlineKeyboardButton("💳 Оплатить", callback_data="to_pay")
-        cancel_btn = types.InlineKeyboardButton("❌ Отмена", callback_data='main_menu')
-        payment_menu.add(pay_btn, cancel_btn)
-        await call.message.edit_text("У Вас есть 15 минут для оплаты, иначе запись будет автоматически отменена.",
+        # pay_btn = types.InlineKeyboardButton("💳 Оплатить",
+        #                                      callback_data=create_payment_cb.new(srv_id=callback_data['srv_id'],
+        #                                                                          rnumb_id=callback_data['rec_rnumb_id']))
+        pay_btn = types.InlineKeyboardButton("💳 Оплатить", url=pay_link)
+        payment_menu.add(pay_btn)
+        await call.message.edit_text("⚠️ У Вас есть 15 минут для оплаты, иначе запись будет автоматически отменена.\n\n"
+                                     "Для оплаты нажмите на кнопку ниже 👇",
                                      reply_markup=payment_menu)
+        menu = types.InlineKeyboardMarkup(row_width=1)
+        recs_btn = types.InlineKeyboardButton('МОИ ЗАПИСИ', callback_data='my_recordings')
+        menu.add(recs_btn, main_menu_item)
+        await call.message.answer("ℹ️ После успешной оплаты Ваша запись появится в сервисе <b>Мои записи</b> в Главном "
+                                  "меню.", reply_markup=menu)
 
 
-@dp.callback_query_handler(text="to_pay")
-async def payment_confirmation(call: types.CallbackQuery):
-    await call.answer()  # чтобы не было loading....
-    to_main_menu = types.InlineKeyboardMarkup(row_width=1)
-    to_main_menu.add(main_menu_item)
 
-    await call.message.edit_text('✅ <b>Оплата прошла успешно, запись подтверждена.</b>\n\n'
-                                 'Свои записи Вы можете найти в ГЛАВНОЕ МЕНЮ->МОИ ЗАПИСИ.\n\n'
-                                 'За сутки до приёма вы получите напоминание о приеме и штрих-код для входа. '
-                                 'Он также будет находиться в ГЛАВНОЕ МЕНЮ->ШТРИХ-КОД НА ВХОД.',
-                                 reply_markup=to_main_menu)
+# @dp.callback_query_handler(create_payment_cb.filter())
+# async def payment_confirmation(call: types.CallbackQuery, callback_data: dict):
+#     await call.answer()  # чтобы не было loading....
+#     pay_link = mis_arianda.get_pay_link(db.use_token(call.message.chat.id), callback_data['rnumb_id'],
+#                                         callback_data['srv_id']).json()
+#     # повторная авторизация, если необходимо
+#     rep_auth = await repeat_auth(call.message, pay_link)
+#
+#     if rep_auth == "Повторная авторизация":
+#         return
+#     else:
+#         to_main_menu = types.InlineKeyboardMarkup(row_width=1)
+#         to_main_menu.add(main_menu_item)
+#
+#
+#     # await call.message.edit_text('✅ <b>Оплата прошла успешно, запись подтверждена.</b>\n\n'
+#     #                              'Свои записи Вы можете найти в ГЛАВНОЕ МЕНЮ->МОИ ЗАПИСИ.\n\n'
+#     #                              'За сутки до приёма вы получите напоминание о приеме и штрих-код для входа. '
+#     #                              'Он также будет находиться в ГЛАВНОЕ МЕНЮ->ШТРИХ-КОД НА ВХОД.',
+#     #                              reply_markup=to_main_menu)
 
 
 ''' 2.3. - главное меню -> сервис Заключения '''

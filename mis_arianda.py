@@ -17,6 +17,9 @@ RNUMB_INFO = config.RNUMB_INFO
 RNUMB_REC = config.RNUMB_REC
 HISTORY_LIST = config.HISTORY_LIST
 HISTORY_PDF = config.HISTORY_PDF
+RNUMB_CREATE_PAYMENT = config.RNUMB_CREATE_PAYMENT
+RNUMB_ORDER_TO_PAY = config.RNUMB_ORDER_TO_PAY
+PAY_LINK = config.PAY_LINK
 
 
 # TODO продумать вариант повторной авторизации на случае обновления токена -
@@ -208,7 +211,7 @@ def get_rnumb_info(token, rnumb_id):
 # запись - запись на талон
 def create_rec(token, rnumb_id, srv_id):
     return requests.get(RNUMB_REC, headers={'Authorization': 'TOKEN ' + token},
-                                   params={'rnumbID': rnumb_id, 'srvID': srv_id})
+                        params={'rnumbID': rnumb_id, 'srvID': srv_id})
 
 
 # заключения - список посещений
@@ -245,3 +248,52 @@ def get_history_list(token):
 # заключения - PDF-файл
 def get_visit_pdf(visit_tp, visit_id):
     return requests.get(HISTORY_PDF, params={'tp': visit_tp, 'id': visit_id})
+
+
+# 1. оплата - создание платежа после записи
+def create_payment(token, rnumb_id, srv_id):
+    all_data = requests.get(RNUMB_CREATE_PAYMENT, headers={'Authorization': 'TOKEN ' + token},
+                            params={'rnumbID': rnumb_id, 'srvID': srv_id}).json()
+    data = all_data.get("data")
+    error = "error"
+
+    if not all_data.get("success"):
+        return error
+
+    else:
+        return data.get("paymentid")
+
+
+# 2. оплата - получение номера заказа для оплаты
+def get_order_to_pay(token, rnumb_id, srv_id):
+    payment_id = create_payment(token, rnumb_id, srv_id)
+    patient_info = get_patient_info(token)
+    p_email = patient_info.get('email')
+    p_phone = patient_info.get('phone')
+
+    all_data = requests.get(RNUMB_ORDER_TO_PAY, headers={'Authorization': 'TOKEN ' + token},
+                            params={'paymentID': payment_id,
+                                    'email': p_email,
+                                    'phone': p_phone}).json()
+    data = all_data.get("data")
+    error = "error"
+
+    if not all_data.get("success"):
+        return error
+
+    else:
+        return data.get("identity")
+
+
+# 3. оплата - получение ссылки на оплату
+def get_pay_link(token, rnumb_id, srv_id):
+    identity = get_order_to_pay(token, rnumb_id, srv_id)
+    all_data = requests.post(PAY_LINK, headers={'Authorization': 'TOKEN ' + token}, json={'orderid':identity}).json()
+    data = all_data.get("data")
+    error = "error"
+
+    if not all_data.get("success"):
+        return error
+
+    else:
+        return data.get("confirmationurl")
