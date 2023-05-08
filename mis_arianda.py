@@ -22,16 +22,23 @@ RNUMB_ORDER_TO_PAY = config.RNUMB_ORDER_TO_PAY
 PAY_LINK = config.PAY_LINK
 
 
-# TODO продумать вариант повторной авторизации на случае обновления токена -
+# DONE продумать вариант повторной авторизации на случае обновления токена -
 #  вроде как придумал -> см. zdrav_bot_code.repeat_auth()
 # авторизация - ввод логина/пароля -> получение токена
 def auth(login, password):
-    return requests.post(API_LOGIN, json={'login': login, 'passwd': password})
+    return requests.post(API_LOGIN, json={'login': login, 'passwd': password}, verify=False)
 
 
 # получение информации по методу, в котором обязательный параметр ТОЛЬКО токен
 def only_token_data(method, token):
-    return requests.get(method, headers={'Authorization': 'TOKEN ' + token}).json()
+    return requests.get(method, headers={'Authorization': 'TOKEN ' + token}, verify=False).json()
+
+
+# проверка и замена None на НЕ УКАЗАНО в текстах, полученных по апи
+def none_data_check(data_dict):
+    for key in data_dict:
+        if data_dict[key] is None:
+            data_dict[key] = "не указано"
 
 
 #  информация о пациенте
@@ -54,6 +61,12 @@ def get_patient_info(token):
                              "snils": data.get("snils"),
                              "address_proj": data.get("address_proj")
                              }
+
+        # for key in patient_info_dict:
+        #     if patient_info_dict[key] is None:
+        #         patient_info_dict[key] = "не указано"
+        none_data_check(patient_info_dict)
+
         return patient_info_dict
 
 
@@ -93,13 +106,14 @@ def get_recordings(token):
 
 # отмена записи
 def cancel_rec(token, rnumb_id):
-    return requests.get(CANCEL_RECORDING, headers={'Authorization': 'TOKEN ' + token}, params={'rnumbID': rnumb_id})
+    return requests.get(CANCEL_RECORDING, headers={'Authorization': 'TOKEN ' + token}, params={'rnumbID': rnumb_id},
+                        verify=False)
 
 
 # запись - список специальностей
 def get_spec_list(token):
     all_data = requests.get(SPEC_LIST, headers={'Authorization': 'TOKEN ' + token},
-                            params={'beginDate': '2015-02-01', 'endDate': '2115-02-01'}).json()
+                            params={'beginDate': '2015-02-01', 'endDate': '2115-02-01'}, verify=False).json()
     data = all_data.get("data")
     error = "error"
 
@@ -119,7 +133,8 @@ def get_spec_list(token):
 # запись - список докторов
 def get_doc_list(token, spec_id):
     all_data = requests.get(DOC_LIST, headers={'Authorization': 'TOKEN ' + token},
-                            params={'specID': spec_id, 'beginDate': '2015-02-01', 'endDate': '2115-02-01'}).json()
+                            params={'specID': spec_id, 'beginDate': '2015-02-01', 'endDate': '2115-02-01'},
+                            verify=False).json()
     data = all_data.get("data")
     error = "error"
 
@@ -148,7 +163,7 @@ def get_doc_list(token, spec_id):
 def get_rnumb_list(token, spec_id, doc_id):
     all_data = requests.get(RNUMB_LIST, headers={'Authorization': 'TOKEN ' + token},
                             params={'doctorID': doc_id, 'specID': spec_id,
-                                    'beginDate': '2015-02-01', 'endDate': '2115-02-01'}).json()
+                                    'beginDate': '2015-02-01', 'endDate': '2115-02-01'}, verify=False).json()
     data = all_data.get("data")
     error = "error"
 
@@ -176,7 +191,7 @@ def get_rnumb_list(token, spec_id, doc_id):
 # запись - инфо о талоне для подтверждения
 def get_rnumb_info(token, rnumb_id):
     all_data = requests.get(RNUMB_INFO, headers={'Authorization': 'TOKEN ' + token},
-                            params={'rnumbID': rnumb_id}).json()
+                            params={'rnumbID': rnumb_id}, verify=False).json()
     data = all_data.get("data")
     error = "error"
 
@@ -211,7 +226,7 @@ def get_rnumb_info(token, rnumb_id):
 # запись - запись на талон
 def create_rec(token, rnumb_id, srv_id):
     return requests.get(RNUMB_REC, headers={'Authorization': 'TOKEN ' + token},
-                        params={'rnumbID': rnumb_id, 'srvID': srv_id})
+                        params={'rnumbID': rnumb_id, 'srvID': srv_id}, verify=False)
 
 
 # заключения - список посещений
@@ -220,7 +235,8 @@ def get_history_list(token):
     f_today = datetime.datetime.strftime(today, '%Y-%m-%d')
     # TODO реализовать возможность по кнопке выводить еще 10 записей, убрать 1000, в запросе ровно 10, 1..10, 11...20
     all_data = requests.get(HISTORY_LIST, headers={'Authorization': 'TOKEN ' + token},
-                            params={'start': '1', 'end': '10000', 'beginDate': '2015-02-01', 'endDate': f_today}).json()
+                            params={'start': '1', 'end': '10000', 'beginDate': '2015-02-01', 'endDate': f_today},
+                            verify=False).json()
     data = all_data.get("data")
     error = "error"
 
@@ -247,13 +263,13 @@ def get_history_list(token):
 
 # заключения - PDF-файл
 def get_visit_pdf(visit_tp, visit_id):
-    return requests.get(HISTORY_PDF, params={'tp': visit_tp, 'id': visit_id})
+    return requests.get(HISTORY_PDF, params={'tp': visit_tp, 'id': visit_id}, verify=False)
 
 
 # 1. оплата - создание платежа после записи
 def create_payment(token, rnumb_id, srv_id):
     all_data = requests.get(RNUMB_CREATE_PAYMENT, headers={'Authorization': 'TOKEN ' + token},
-                            params={'rnumbID': rnumb_id, 'srvID': srv_id}).json()
+                            params={'rnumbID': rnumb_id, 'srvID': srv_id}, verify=False).json()
     data = all_data.get("data")
     error = "error"
 
@@ -274,7 +290,7 @@ def get_order_to_pay(token, rnumb_id, srv_id):
     all_data = requests.get(RNUMB_ORDER_TO_PAY, headers={'Authorization': 'TOKEN ' + token},
                             params={'paymentID': payment_id,
                                     'email': p_email,
-                                    'phone': p_phone}).json()
+                                    'phone': p_phone}, verify=False).json()
     data = all_data.get("data")
     error = "error"
 
@@ -288,7 +304,8 @@ def get_order_to_pay(token, rnumb_id, srv_id):
 # 3. оплата - получение ссылки на оплату
 def get_pay_link(token, rnumb_id, srv_id):
     identity = get_order_to_pay(token, rnumb_id, srv_id)
-    all_data = requests.post(PAY_LINK, headers={'Authorization': 'TOKEN ' + token}, json={'orderid':identity}).json()
+    all_data = requests.post(PAY_LINK, headers={'Authorization': 'TOKEN ' + token}, json={'orderid': identity},
+                             verify=False).json()
     data = all_data.get("data")
     error = "error"
 

@@ -27,6 +27,8 @@ dp = Dispatcher(bot, storage=storage)
 msg_ids_from_auth = []
 
 
+# TODO разбить на файлы по сервисам
+
 # START - НАЧАЛО ВЗАИМОДЕЙСТВИЯ С БОТОМ
 @dp.message_handler(commands=['start'])
 async def welcome(message: types.Message):
@@ -52,7 +54,8 @@ async def lk_question(message: types.Message):
 
 
 ''' ОТСЛЕЖИВАНИЕ ДЕЙСТВИЙ ПОЛЬЗОВАТЕЛЯ И ОТРАБОТКА ЛОГИКИ НАЖАТИЯ КНОПОК '''
-''' 1 - у пользователя нет ЛК: 1 шаг - текст про преимущества регистрации и 2 кнопки '''
+''' 1 - у пользователя нет ЛК: 
+    1 шаг - текст про преимущества регистрации и 2 кнопки '''
 
 
 @dp.callback_query_handler(text="lk_not_exists")
@@ -68,8 +71,7 @@ async def registration_offer(call: types.CallbackQuery):
     await call.message.answer("Зарегистрировавшись, "
                               "Вы получите доступ к сервисам записи и оплаты. "
                               "А ещё наш бот пришлет напоминание за сутки до "
-                              "приема и штрих-код для прохода на территорию "
-                              "центра.", reply_markup=registration_question)
+                              "приема.", reply_markup=registration_question)
     # one_step_back()
 
     # bot.delete_message(msg.chat_id, msg.message_id)
@@ -84,17 +86,24 @@ async def registration_link(call: types.CallbackQuery):
     # await call.message.delete_reply_markup()  # удаление кнопок у предыдущего сообщения
     await call.message.delete()  # удаление предыдущего сообщения
 
-    await call.message.answer("Для регистрации перейдите по ссылке ниже на сайт СЗОНКЦ Соколова и заполните"
-                              " форму регистрации.\n\n"
-                              "🌐 https://med122.com/telemedicine/register/\n\n"
-                              "После заполнения формы нашим операторам потребуется время"
-                              " для обработки Ваших персональных данных.\n"
-                              "Они с Вами свяжутся для подтверждения данных и вышлют на почту логин и пароль.\n\n"
-                              "Среднее время создания личного кабинета: 1-2 рабочих дня.")
+    registration_btn = types.InlineKeyboardMarkup(row_width=1)
+    item1 = types.InlineKeyboardButton("Зарегистрировать ЛК", url='https://online.med122.ru:8443/login')  # ссылка нк ЛК
+    item2 = types.InlineKeyboardButton("Чат с оператором 💬",
+                                       url='https://t.me/med122SupportBot')  # ссылка на тг-бот (Jivosite)
+    registration_btn.add(item1, item2)
+
+    await call.message.answer(
+        "Для регистрации нажмите кнопку \"Зарегистрировать ЛК\", после этого вы перейдете на сайт "
+        "личного кабинета пациента СЗОНКЦ Соколова."
+        " Форма для регистрации будет доступна по кнопке \"Регистрация\" в нижней части экрана.\n\n"
+        "Задать вопросы по поводу регистрации личного кабинета и не только вы можете нашей "
+        "службе поддержки, для этого нажмите кнопку \"Чат с оператором\".\n\n",
+        reply_markup=registration_btn)
+
     await lk_question(call.message)
 
 
-'''НАЖАТИЕ КНОПКИ ЗАРЕГИСТРИРОВАТЬСЯ - ОТПРАВКА ИНФОРМАЦИИ О ЦЕНТРЕ'''
+'''НАЖАТИЕ КНОПКИ ЗАРЕГИСТРИРОВАТЬСЯ - ОТПРАВКА ИНФОРМАЦИИ О ЦЕНТРЕ (из файла about clinic'''
 
 
 @dp.callback_query_handler(text="continue_without_reg")
@@ -127,6 +136,8 @@ async def registration_link(call: types.CallbackQuery):
 
 #  повторная авторизация
 async def repeat_auth(message: types.Message, method):
+    print('method:')
+    print(method)
     if method == "error":
         # await message.delete()
         markup = types.InlineKeyboardMarkup(row_width=1)
@@ -147,14 +158,14 @@ class RegForm(StatesGroup):
     passwd = State()
 
 
-#  переход к процессу авторизации при нажатии на конпку с callback_data = lk_exists
+#  переход к процессу авторизации при нажатии на кнопку с callback_data = lk_exists
 @dp.callback_query_handler(text="lk_exists")
 async def authorisation_start(call: types.CallbackQuery):
     # await call.message.delete()  # удаление предыдущего сообщения
 
     await RegForm.login.set()  # задаем state (состояние) ввода логина
     message_id = await call.message.edit_text("Введите логин: \n(тот же, что Вы используете для "
-                                              "доступа к личному кабинету на сайте lk.med122.com)")
+                                              "доступа к личному кабинету на сайте https://online.med122.ru:8443/login)")
     msg_ids_from_auth.clear()
     msg_ids_from_auth.append(message_id)  # сохраняем id сообщения для последующего удаления, см. ф-цию auth_welcome
 
@@ -191,7 +202,9 @@ async def process_passwd(message: types.Message, state: FSMContext):
             token = login_response.json().get("data").get("token")
             db.save_token(message.chat.id, token)  # сохраняем токен в БД вместе с chat_id
 
-            print("Authorization: SUCCESS!")
+            today = datetime.datetime.today()
+
+            print(f"Authorization: SUCCESS! {today}")
             # print(db.use_token(message.chat.id))
 
             welcome_menu = types.InlineKeyboardMarkup(row_width=1)
@@ -230,8 +243,10 @@ async def restart_welcome(call: types.CallbackQuery):
 async def auth_welcome(call: types.CallbackQuery):
     await call.answer()  # чтобы не было loading....
     #  повторная авторизация, если необходимо
+    print(db.use_token(call.message.chat.id))
     rep_auth = await repeat_auth(call.message, mis_arianda.get_patient_info(db.use_token(call.message.chat.id)))
     # TODO подумать над кэшированием токена
+    print(rep_auth)
 
     if rep_auth == "Повторная авторизация":
         return
@@ -241,16 +256,18 @@ async def auth_welcome(call: types.CallbackQuery):
         item2 = types.InlineKeyboardButton("Информация о клинике", callback_data='clinic_info')
         item3 = types.InlineKeyboardButton("Мои данные", callback_data='my_info')
         item4 = types.InlineKeyboardButton("Оставить отзыв ✍", callback_data='feedback')
-        item5 = types.InlineKeyboardButton("Выйти 🚪", callback_data='lk_rest')
-        welcome_menu.add(main_menu_item, item2, item3, item4, item5)
+        item5 = types.InlineKeyboardButton("Чат с оператором 💬", url='https://t.me/med122SupportBot')
+        item6 = types.InlineKeyboardButton("Выйти 🚪", callback_data='lk_rest')
+        welcome_menu.add(main_menu_item, item2, item3, item4, item5, item6)
 
         # TODO возникает ошибка "Message can't be deleted for everyone" при повторной авторизации - не удаляются
-        #  сообщения и не пройти дальше в личный кабинет из-за этого
+        #  сообщения и не пройти дальше в личный кабинет из-за этого -- отлажено с помощью try..except
+
         try:
             if msg_ids_from_auth:  # удаление сообщений о вводе логина и пароля
-                print(msg_ids_from_auth)
+                # print(msg_ids_from_auth)
                 for msg_id in msg_ids_from_auth:
-                    print(msg_id.message_id)
+                    # print(msg_id.message_id)
                     await bot.delete_message(chat_id=call.message.chat.id, message_id=msg_id.message_id)
                 msg_ids_from_auth.clear()
         except Exception as ex:
@@ -262,7 +279,7 @@ async def auth_welcome(call: types.CallbackQuery):
         patient_lastname = get_info.get("lastname")
         patient_firstname = get_info.get("firstname")
         patient_secondname = get_info.get("secondname")
-        print(patient_lastname + patient_secondname + patient_firstname)
+        # print(patient_lastname + patient_secondname + patient_firstname)
         await call.message.edit_text(
             f"<b>Личный кабинет:</b> {patient_firstname} {patient_secondname} {patient_lastname}",
             reply_markup=welcome_menu)
@@ -406,20 +423,23 @@ async def recordings(call: types.CallbackQuery):
 
         if all_recordings:
             for recording in all_recordings:
+                mis_arianda.none_data_check(recording)
+
                 i += 1
-                # if recording.get
-                recording_data = (f"<b>Запись №{i}:</b>\n"
-                                  f"📅 {recording.get('dat_bgn')}\n"
-                                  f"Талон №: {recording.get('rnumb_id')}\n"
-                                  f"🩺️ {recording.get('spec')}\n"
-                                  f"👨‍⚕ {recording.get('lastname')} "
-                                  f"{recording.get('firstname')} {recording.get('secondname')}\n"
-                                  f"Услуга: {recording.get('srv_text')}\n"
-                                  f"🏥 {recording.get('depname')}\n"
-                                  f"📍 {recording.get('addr')}\n"
-                                  f"Кабинет: {recording.get('cab')}\n"
-                                  f"☎ {recording.get('phone')}\n")
-                my_rec.append(recording_data)
+                if i <= 10:  # для теста выводим первые 10 записей
+                    # if recording.get
+                    recording_data = (f"<b>Запись №{i}:</b>\n"
+                                      f"📅 {recording.get('dat_bgn')}\n"
+                                      f"Талон №: {recording.get('rnumb_id')}\n"
+                                      f"🩺️ {recording.get('spec')}\n"
+                                      f"👨‍⚕ {recording.get('lastname')} "
+                                      f"{recording.get('firstname')} {recording.get('secondname')}\n"
+                                      f"Услуга: {recording.get('srv_text')}\n"
+                                      f"🏥 {recording.get('depname')}\n"
+                                      f"📍 {recording.get('addr')}\n"
+                                      f"Кабинет: {recording.get('cab')}\n"
+                                      f"☎ {recording.get('phone')}\n")
+                    my_rec.append(recording_data)
                 # показываем записи к врачам
                 # if recording == all_recordings[-1]:  # если запись последняя, то прикрепляем еще кнопку ГЛАВНОЕ МЕНЮ
 
@@ -432,7 +452,7 @@ async def recordings(call: types.CallbackQuery):
         else:  # обработка случая, если нет записей
             to_main_menu = types.InlineKeyboardMarkup(row_width=1)
             to_main_menu.add(main_menu_item)
-            await call.message.answer("У вас нет записей", reply_markup=to_main_menu)
+            await call.message.edit_text("У вас нет записей", reply_markup=to_main_menu)
 
 
 # recs_rnumb_ids = []
@@ -755,21 +775,21 @@ async def create_recording(call: types.CallbackQuery, callback_data: dict):
     await call.message.edit_text("Идёт загрузка ⏳\nПожалуйста, подождите...")
     all_date = mis_arianda.create_rec(db.use_token(call.message.chat.id), callback_data['rnumb_id'],
                                       callback_data['srv_id']).json()
+    # DONE настроить оплату - настроена тестовая оплата
+    pay_link = mis_arianda.get_pay_link(db.use_token(call.message.chat.id), callback_data['rnumb_id'],
+                                        callback_data['srv_id'])
     # повторная авторизация, если необходимо
     rep_auth = await repeat_auth(call.message, all_date)
-
-    if rep_auth == "Повторная авторизация":
+    rep_auth_2 = await repeat_auth(call.message, pay_link)
+    if rep_auth == "Повторная авторизация" or rep_auth_2 == "Повторная авторизация":
         return
     else:
-        # DONE настроить оплату - настроена тестовая оплата
-        pay_link = mis_arianda.get_pay_link(db.use_token(call.message.chat.id), callback_data['rnumb_id'],
-                                            callback_data['srv_id'])
 
-        print(mis_arianda.create_payment(db.use_token(call.message.chat.id), callback_data['rnumb_id'],
-                                          callback_data['srv_id']))
-        print(mis_arianda.get_order_to_pay(db.use_token(call.message.chat.id), callback_data['rnumb_id'],
-                                         callback_data['srv_id']))
-        print (pay_link)
+        # print(mis_arianda.create_payment(db.use_token(call.message.chat.id), callback_data['rnumb_id'],
+        #                                  callback_data['srv_id']))
+        # print(mis_arianda.get_order_to_pay(db.use_token(call.message.chat.id), callback_data['rnumb_id'],
+        #                                    callback_data['srv_id']))
+        print(pay_link)
 
         payment_menu = types.InlineKeyboardMarkup(row_width=3)
         # pay_btn = types.InlineKeyboardButton("💳 Оплатить",
@@ -786,7 +806,7 @@ async def create_recording(call: types.CallbackQuery, callback_data: dict):
         await call.message.answer("ℹ️ После успешной оплаты Ваша запись появится в сервисе <b>Мои записи</b> в Главном "
                                   "меню.", reply_markup=menu)
 
-
+# TODO сделать таймер для напоминания о приёме
 
 # @dp.callback_query_handler(create_payment_cb.filter())
 # async def payment_confirmation(call: types.CallbackQuery, callback_data: dict):
@@ -830,29 +850,36 @@ async def show_history(call: types.CallbackQuery):
         return
     else:
         visit_list_menu = types.InlineKeyboardMarkup(row_width=1)
-        back_btn = types.InlineKeyboardButton("↩ Назад", callback_data='main_menu')
-
+        # back_btn = types.InlineKeyboardButton("↩ Назад", callback_data='main_menu')
+        # TODO добавить вариант, когда нет заключений!!
         for visit in all_visits[:10]:
             visit_id = visit.get('keyid')
             visit_date = visit.get('dat').split(" ")[0]
             visit_spec = visit.get('spec')
             visit_tp = visit.get('typehistory')
-            # добавляем в цикле необходимое кол-во кнопок с callback_data равной key_id = id посещения
-            visit_item = types.InlineKeyboardButton(f'📋 {visit_date}, {visit_spec}',
-                                                    callback_data=visit_history_cb.new(visit_id=visit_id,
-                                                                                       visit_tp=visit_tp,
-                                                                                       visit_date=visit_date))
+            visit_text = visit.get('typetext')
+            if visit_spec:
+                # добавляем в цикле необходимое кол-во кнопок с callback_data равной key_id = id посещения
+                visit_item = types.InlineKeyboardButton(f'📋 {visit_date}, {visit_spec}',
+                                                        callback_data=visit_history_cb.new(visit_id=visit_id,
+                                                                                           visit_tp=visit_tp,
+                                                                                           visit_date=visit_date))
+            else:
+                visit_item = types.InlineKeyboardButton(f'📋 {visit_date}, {visit_text}',
+                                                        callback_data=visit_history_cb.new(visit_id=visit_id,
+                                                                                           visit_tp=visit_tp,
+                                                                                           visit_date=visit_date))
             visit_list_menu.add(visit_item)
 
-        visit_list_menu.add(back_btn)
+        visit_list_menu.add(main_menu_item)
 
         await call.message.edit_text("<b><u>МОИ ПОСЕЩЕНИЯ</u></b>\n\n"
                                      "Показаны последние 10 посещений.\n"
-                                     "Нажмите на нужное посещение, чтобы получить заключение 📋\n\n"
-                                     "Для того, чтобы показать еще 10 посещений, нажмите кнопку <b>Показать ещё</b>.",
+                                     "Нажмите на нужное посещение, чтобы получить заключение 📋",
                                      reply_markup=visit_list_menu)
 
 
+# 2. получение PDF-файла с заключением
 @dp.callback_query_handler(visit_history_cb.filter())
 async def send_visit_pdf(call: types.CallbackQuery, callback_data: dict):
     visit_pdf = mis_arianda.get_visit_pdf(callback_data['visit_id'], callback_data['visit_tp'])
@@ -870,7 +897,7 @@ async def send_visit_pdf(call: types.CallbackQuery, callback_data: dict):
     pdf_url_repl_tp = pdf_url.replace(":tp", visit_tp)
     pdf_url_repl_id = pdf_url_repl_tp.replace(":id", visit_id)
     pdf_url_replaced = pdf_url_repl_id.split("?")[0]
-    print(pdf_url_replaced)
+    # print(pdf_url_replaced)
     to_menu_btn = types.InlineKeyboardMarkup(row_width=1)
     back_btn = types.InlineKeyboardButton("↩ Назад", callback_data='doctor_res')
     to_menu_btn.add(back_btn, main_menu_item)
