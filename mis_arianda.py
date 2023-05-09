@@ -111,9 +111,10 @@ def cancel_rec(token, rnumb_id):
 
 
 # запись - список специальностей
-def get_spec_list(token):
+def get_spec_list(token, filial=''):  # для Валдая stacId='90717837'
     all_data = requests.get(SPEC_LIST, headers={'Authorization': 'TOKEN ' + token},
-                            params={'beginDate': '2015-02-01', 'endDate': '2115-02-01'}, verify=False).json()
+                            params={'beginDate': '2015-02-01', 'endDate': '2115-02-01', 'stacId': f'{filial}'},
+                            verify=False).json()
     data = all_data.get("data")
     error = "error"
 
@@ -131,9 +132,10 @@ def get_spec_list(token):
 
 
 # запись - список докторов
-def get_doc_list(token, spec_id):
+def get_doc_list(token, spec_id, filial=''):  # для Валдая stacId='90717837'
     all_data = requests.get(DOC_LIST, headers={'Authorization': 'TOKEN ' + token},
-                            params={'specID': spec_id, 'beginDate': '2015-02-01', 'endDate': '2115-02-01'},
+                            params={'specID': spec_id, 'beginDate': '2015-02-01', 'endDate': '2115-02-01',
+                                    'stacId': f'{filial}'},
                             verify=False).json()
     data = all_data.get("data")
     error = "error"
@@ -160,10 +162,12 @@ def get_doc_list(token, spec_id):
 
 
 # запись - список номерков
-def get_rnumb_list(token, spec_id, doc_id):
+def get_rnumb_list(token, spec_id, doc_id, filial=''):  # для Валдая stacId='90717837'
     all_data = requests.get(RNUMB_LIST, headers={'Authorization': 'TOKEN ' + token},
                             params={'doctorID': doc_id, 'specID': spec_id,
-                                    'beginDate': '2015-02-01', 'endDate': '2115-02-01'}, verify=False).json()
+                                    'beginDate': '2015-02-01', 'endDate': '2115-02-01',
+                                    'stacId': f'{filial}'},
+                            verify=False).json()
     data = all_data.get("data")
     error = "error"
 
@@ -201,25 +205,26 @@ def get_rnumb_info(token, rnumb_id):
         all_info = []
 
     for info in data:
-        all_info.append({"rnumb_id": info.get("rnumb_id"),
-                         "rnumb_dat_begin": info.get("dat_bgn"),
-                         "rnumb_dat_end": info.get("dat_end"),
-                         "rnumb_cab": info.get("cab"),
-                         "rnumb_spec": info.get("spec"),
-                         "rnumb_srv_text": info.get("srv_text"),
-                         "rnumb_doctor_id": info.get("doctor_id"),
-                         "rnumb_doc_lname": info.get("lastname"),
-                         "rnumb_doc_fname": info.get("firstname"),
-                         "rnumb_doc_sname": info.get("secondname"),
-                         "rnumb_depname": info.get("depname"),
-                         "rnumb_addr": info.get("addr"),
-                         "rnumb_phone": info.get("phone"),
-                         "rnumb_paystatus": info.get("paystatus"),
-                         "rnumb_calc_sum": info.get("calc_sum"),
-                         "rnumb_is_telemed": info.get("is_telemed"),
-                         "rnumb_url_telemed": info.get("url_telemed")
-                         })
-
+        rnumb_dict = {"rnumb_id": info.get("rnumb_id"),
+                      "rnumb_dat_begin": info.get("dat_bgn"),
+                      "rnumb_dat_end": info.get("dat_end"),
+                      "rnumb_cab": info.get("cab"),
+                      "rnumb_spec": info.get("spec"),
+                      "rnumb_srv_text": info.get("srv_text"),
+                      "rnumb_doctor_id": info.get("doctor_id"),
+                      "rnumb_doc_lname": info.get("lastname"),
+                      "rnumb_doc_fname": info.get("firstname"),
+                      "rnumb_doc_sname": info.get("secondname"),
+                      "rnumb_depname": info.get("depname"),
+                      "rnumb_addr": info.get("addr"),
+                      "rnumb_phone": info.get("phone"),
+                      "rnumb_paystatus": info.get("paystatus"),
+                      "rnumb_calc_sum": info.get("calc_sum"),
+                      "rnumb_is_telemed": info.get("is_telemed"),
+                      "rnumb_url_telemed": info.get("url_telemed")
+                      }
+        none_data_check(rnumb_dict)
+        all_info.append(rnumb_dict)
     return all_info
 
 
@@ -272,7 +277,7 @@ def create_payment(token, rnumb_id, srv_id):
                             params={'rnumbID': rnumb_id, 'srvID': srv_id}, verify=False).json()
     data = all_data.get("data")
     error = "error"
-
+    print(f"create_payment {all_data}")
     if not all_data.get("success"):
         return error
 
@@ -293,7 +298,7 @@ def get_order_to_pay(token, rnumb_id, srv_id):
                                     'phone': p_phone}, verify=False).json()
     data = all_data.get("data")
     error = "error"
-
+    print(f"get_order_to_pay {all_data}")
     if not all_data.get("success"):
         return error
 
@@ -308,9 +313,10 @@ def get_pay_link(token, rnumb_id, srv_id):
                              verify=False).json()
     data = all_data.get("data")
     error = "error"
-
+    print(f"get_pay_link {all_data}")
     if not all_data.get("success"):
         return error
 
     else:
+        print(data.get("confirmationurl"))
         return data.get("confirmationurl")
