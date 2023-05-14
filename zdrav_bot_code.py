@@ -858,27 +858,38 @@ async def create_recording(call: types.CallbackQuery, callback_data: dict):
     all_date = mis_arianda.create_rec(db.use_token(call.message.chat.id), callback_data['rnumb_id'],
                                       callback_data['srv_id']).json()
 
+    #  подтверждение записи для Валдая
     if callback_data['stacId'] == "90717837":
         menu = types.InlineKeyboardMarkup(row_width=1)
-        recs_btn = types.InlineKeyboardButton('МОИ ЗАПИСИ', callback_data='my_recordings')
-        menu.add(recs_btn, main_menu_item)
-        await call.message.edit_text('✅ <b>Запись подтверждена.</b>\n\n'
-                                     'Свои записи Вы можете найти в сервисе  <b>Мои записи</b> в Главном меню.\n\n'
-                                     'За сутки до приёма вы получите напоминание о приеме. ',
-                                     reply_markup=menu)
+        #  проверка прикрепления пациента к Валдаю (ОМС)
+        # TODO  после доработки ЛК надо сделать проверку на самом первом шаге, чтобы не тратить время пациента
+        if all_date.get('data').get('err_text') == 'Успешно':
+            recs_btn = types.InlineKeyboardButton('МОИ ЗАПИСИ', callback_data='my_recordings')
+            menu.add(recs_btn, main_menu_item)
+            await call.message.edit_text('✅ <b>Запись подтверждена.</b>\n\n'
+                                         'Свои записи Вы можете найти в сервисе  <b>Мои записи</b> в Главном меню.\n\n'
+                                         'За сутки до приёма вы получите напоминание о приеме. ',
+                                         reply_markup=menu)
+        else:
+            #  вывод сообщения и ссылки на чат с оператором в случае отсутствия прикрепления пациента к Валдаю
+            chat = types.InlineKeyboardButton("Чат с оператором 💬", url='https://t.me/med122SupportBot')
+            menu.add(chat, main_menu_item)
+            await call.message.edit_text(f"⚠️ {all_date.get('data').get('err_text')}.", reply_markup=menu)
+
         return
 
     pay_link = mis_arianda.get_pay_link(db.use_token(call.message.chat.id), callback_data['rnumb_id'],
                                         callback_data['srv_id'])
+
     # повторная авторизация, если необходимо
     rep_auth = await repeat_auth(call.message, all_date)
     print(all_date)
     rep_auth_2 = await repeat_auth(call.message, pay_link)
     print(pay_link)
+
     if rep_auth == "Повторная авторизация" or rep_auth_2 == "Повторная авторизация":
         return
     else:
-
         # print(mis_arianda.create_payment(db.use_token(call.message.chat.id), callback_data['rnumb_id'],
         #                                  callback_data['srv_id']))
         # print(mis_arianda.get_order_to_pay(db.use_token(call.message.chat.id), callback_data['rnumb_id'],
