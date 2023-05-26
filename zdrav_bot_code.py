@@ -13,6 +13,9 @@ import logging
 from aiogram import Bot, Dispatcher, executor, types
 import mis_arianda
 import db_postgre as db
+import warnings
+
+warnings.filterwarnings('ignore')
 
 API_TOKEN = config.TOKEN
 
@@ -74,7 +77,7 @@ async def registration_offer(call: types.CallbackQuery):
                               "Вы получите доступ ко всем сервисам, в том числе сервису записи. "
                               "А ещё наш бот пришлет напоминание за сутки до "
                               "приема."
-                              "\n\nЕсли вы ранее не регистрировали личный кабинет пациента, нажмите кнопку "
+                              "\n\nЕсли Вы ранее не регистрировали личный кабинет пациента, нажмите кнопку "
                               "<b>\"Зарегистрироваться\"</b>.", reply_markup=registration_question)
     # one_step_back()
 
@@ -113,7 +116,7 @@ async def registration_link(call: types.CallbackQuery):
 
 
 @dp.callback_query_handler(text="continue_without_reg")
-async def registration_link(call: types.CallbackQuery):
+async def registration_link_doc_rec(call: types.CallbackQuery):
     # await call.message.delete_reply_markup()  # удаление кнопок у предыдущего сообщения
     await call.message.delete()  # удаление предыдущего сообщения
 
@@ -128,7 +131,7 @@ async def registration_link(call: types.CallbackQuery):
 
 
 @dp.callback_query_handler(text="record_to_doc")
-async def registration_link(call: types.CallbackQuery):
+async def registration_link_reg_phrase(call: types.CallbackQuery):
     await call.message.delete_reply_markup()  # удаление кнопок у предыдущего сообщения
 
     await call.message.answer("Запись к врачу через бота доступна "
@@ -142,14 +145,15 @@ async def registration_link(call: types.CallbackQuery):
 
 #  повторная авторизация
 async def repeat_auth(message: types.Message, method):
-    print('method:')
-    print(method)
+    # print('method:')
+    # print(method)
     if method == "error":
         # await message.delete()
         markup = types.InlineKeyboardMarkup(row_width=1)
-        item = types.InlineKeyboardButton("Авторизоваться 🔐", callback_data='lk_exists')
+        item = types.InlineKeyboardButton("Авторизоваться", callback_data='lk_exists')
+        item1 = types.InlineKeyboardButton("Использовать сохраненные данные 🔐", callback_data='repeat_saved_auth')
         item2 = types.InlineKeyboardButton("Продолжить без авторизации", callback_data='lk_not_exists')
-        markup.add(item, item2)
+        markup.add(item, item1, item2)
 
         await message.edit_text(text="Вас давно не было. Для продолжения использования всех сервисов "
                                      "необходимо повторно войти в личный кабинет.", reply_markup=markup)
@@ -159,31 +163,63 @@ async def repeat_auth(message: types.Message, method):
 
 
 # Используем состояния (States) для обработки введенных логина и пароля
-class RegForm(StatesGroup):
+class RegFormSavePass(StatesGroup):
     login = State()  # Задаем состояние
     passwd = State()
 
 
+auth_way = CallbackData('auth', 'save')
+
+
 #  переход к процессу авторизации при нажатии на кнопку с callback_data = lk_exists
 @dp.callback_query_handler(text="lk_exists")
-async def authorisation_start(call: types.CallbackQuery):
-    # await call.message.delete()  # удаление предыдущего сообщения
+async def choose_authorisation_method(call: types.CallbackQuery):
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    # item = types.InlineKeyboardButton("Войти с сохранением пароля 🔐", callback_data='auth_save_pass')
+    # item2 = types.InlineKeyboardButton("Войти однократно", callback_data='auth_without_pass')
+    item = types.InlineKeyboardButton("Войти с сохранением пароля 🔐", callback_data=auth_way.new(save='1'))
+    item2 = types.InlineKeyboardButton("Войти однократно", callback_data=auth_way.new(save='0'))
+    markup.add(item, item2)
+    await call.message.edit_text(text="<b>Выберите способ авторизации</b> \n\n"
+                                      "При сохранении логина и пароля в чате Вам не придется вводить их вручную "
+                                      "при каждом обращении к боту.", reply_markup=markup)
 
-    await RegForm.login.set()  # задаем state (состояние) ввода логина
+
+# @dp.callback_query_handler(text="auth_save_pass")
+@dp.callback_query_handler(auth_way.filter())
+async def authorisation_start(call: types.CallbackQuery, callback_data: dict):
+    # await call.message.delete()  # удаление предыдущего сообщения
+    print(callback_data['save'])
+
+    if callback_data['save'] == '1':
+        db.auth_save(call.message.chat.id, True)
+    else:
+        db.auth_save(call.message.chat.id, False)
+
+    await RegFormSavePass.login.set()  # задаем state (состояние) ввода логина
     message_id = await call.message.edit_text("Введите логин: \n(тот же, что Вы используете для "
-                                              "доступа к личному кабинету на сайте https://online.med122.ru:8443/login)")
+                                              "доступа к личному кабинету)")
     msg_ids_from_auth.clear()
     msg_ids_from_auth.append(message_id)  # сохраняем id сообщения для последующего удаления, см. ф-цию auth_welcome
 
 
 #  в состоянии 1 берем логин
-@dp.message_handler(state=RegForm.login)
+@dp.message_handler(state=RegFormSavePass.login)
 async def process_name(message: types.Message, state: FSMContext):
-    await message.delete()  # # чудо-удаление логина
+    if not db.use_auth_save(message.chat.id):
+        await message.delete()  # чудо-удаление логина
+
+    # сохраняем id логина для дальнейшей автоматической авторизации
+    if db.use_auth_save(message.chat.id):
+        login_msg_id = message.message_id
+        print("mes_login: ")
+        print(login_msg_id)
+        db.save_login(message.chat.id, login_msg_id)  # сохраняем id сообщения с логином в БД
+
     #  Второй аргумент state типа FSMContext. Через него можно получить данные от FSM-бэкенда.
     async with state.proxy() as data:
-        data['login'] = message.text  # сохраняем введенный пользователем логин
-        await RegForm.next()  # переходим к следующему состоянию - у нас это ввод пароля
+        data['login'] = message.text  # сохраняем введенный пользователем логин для получения токена
+        await RegFormSavePass.next()  # переходим к следующему состоянию - у нас это ввод пароля
 
         message_id = await message.answer("Введите пароль:")
         msg_ids_from_auth.append(message_id)  # сохраняем id сообщения для последующего удаления, см. ф-цию auth_welcome
@@ -191,11 +227,20 @@ async def process_name(message: types.Message, state: FSMContext):
 
 
 # в состоянии 2 берем пароль
-@dp.message_handler(state=RegForm.passwd)
+@dp.message_handler(state=RegFormSavePass.passwd)
 async def process_passwd(message: types.Message, state: FSMContext):
-    await message.delete()  # чудо-удаление пароля
+    if not db.use_auth_save(message.chat.id):
+        await message.delete()  # чудо-удаление пароля
+
+    # сохраняем id пароля для дальнейшей автоматической авторизации
+    if db.use_auth_save(message.chat.id):
+        pass_msg_id = message.message_id
+        # print("mes_pass: ")
+        # print(pass_msg_id)
+        db.save_pass(message.chat.id, pass_msg_id)  # сохраняем id сообщения с паролем в БД
+
     async with state.proxy() as data:
-        data['passwd'] = message.text  # сохраняем введенный пароль
+        data['passwd'] = message.text  # сохраняем введенный пароль для получения токена
         await state.finish()
 
         # отправка POST-запроса с полученными логином и паролем для авторизации пользователя и получения токена
@@ -210,7 +255,7 @@ async def process_passwd(message: types.Message, state: FSMContext):
 
             today = datetime.datetime.today()
 
-            print(f"Authorization: SUCCESS! {today}")
+            print(f"Authorization: chat_id={message.chat.id} SUCCESS! {today}")
             # print(db.use_token(message.chat.id))
 
             welcome_menu = types.InlineKeyboardMarkup(row_width=1)
@@ -232,6 +277,41 @@ async def process_passwd(message: types.Message, state: FSMContext):
             await lk_question(message)
 
 
+# повторная авторизация с сохраненными логином и паролем
+@dp.callback_query_handler(text="repeat_saved_auth")
+async def saved_auth_repeat(call: types.CallbackQuery):
+    try:
+        login = await bot.forward_message(chat_id=call.message.chat.id, from_chat_id=call.message.chat.id,
+                                          message_id=db.use_login_id(call.message.chat.id))
+        # print("login:")
+        # print(login.text)
+        pswd = await bot.forward_message(chat_id=call.message.chat.id, from_chat_id=call.message.chat.id,
+                                         message_id=db.use_pass_id(call.message.chat.id))
+        # print(pswd.text)
+        login_response = mis_arianda.auth(login.text, pswd.text)
+
+        if login_response.json().get("success"):
+            # если введены верные логин и пароль, то в ответ нам приходит токен для доступа к данным
+            token = login_response.json().get("data").get("token")
+            db.save_token(call.message.chat.id, token)  # сохраняем токен в БД вместе с chat_id
+            welcome_menu = types.InlineKeyboardMarkup(row_width=1)
+            item1 = types.InlineKeyboardButton("В личный кабинет ➡", callback_data='lk_menu')
+            welcome_menu.add(item1)
+            await call.message.answer("Добро пожаловать!\n\n", reply_markup=welcome_menu)
+        else:
+            raise Exception
+
+    except Exception as ex:
+        print(ex)
+        print("Ошибка: сообщение по id не найдено или логин/пароль не подходит")
+
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        item = types.InlineKeyboardButton("Войти с сохранением пароля 🔐", callback_data=auth_way.new(save=True))
+        item2 = types.InlineKeyboardButton("Войти однократно", callback_data=auth_way.new(save=False))
+        markup.add(item, item2)
+        await call.message.answer("Логин/пароль неверный,  необходима повторная авторизация", reply_markup=markup)
+
+
 '''2.0. - стартовое меню = личный кабинет'''
 
 # callback item для кнопки ГЛАВНОЕ МЕНЮ (встречается много раза, поэтому выносим)
@@ -249,10 +329,10 @@ async def restart_welcome(call: types.CallbackQuery):
 async def auth_welcome(call: types.CallbackQuery):
     await call.answer()  # чтобы не было loading....
     #  повторная авторизация, если необходимо
-    print(db.use_token(call.message.chat.id))
+    # print(db.use_token(call.message.chat.id))
     rep_auth = await repeat_auth(call.message, mis_arianda.get_patient_info(db.use_token(call.message.chat.id)))
     # TODO подумать над кэшированием токена
-    print(rep_auth)
+    # print(rep_auth)
 
     if rep_auth == "Повторная авторизация":
         return
@@ -299,13 +379,13 @@ async def auth_welcome(call: types.CallbackQuery):
 @dp.callback_query_handler(text="main_menu")
 async def main_menu(call: types.CallbackQuery):
     await call.answer()  # чтобы не было loading....
-    main_markup = types.InlineKeyboardMarkup(row_width=2)
+    main_markup = types.InlineKeyboardMarkup(row_width=1)
     item1 = types.InlineKeyboardButton("ЗАПИСАТЬСЯ", callback_data='record')
     item2 = types.InlineKeyboardButton("МОИ ЗАПИСИ", callback_data='my_recordings')
-    item3 = types.InlineKeyboardButton("ШТРИХ-КОД", callback_data='entry_code')
+    # item3 = types.InlineKeyboardButton("ШТРИХ-КОД", callback_data='entry_code')
     item4 = types.InlineKeyboardButton("ЗАКЛЮЧЕНИЯ", callback_data='doctor_res')
     item5 = types.InlineKeyboardButton("Личный кабинет", callback_data='lk_menu')
-    main_markup.add(item1, item2, item3, item4, item5)
+    main_markup.add(item1, item2, item4, item5)
 
     if msg_ids_from_my_recordings:  # удаление сообщений в сервисе МОИ ЗАПИСИ по id, если таковые имеются
         for msg_id in msg_ids_from_my_recordings:
@@ -874,7 +954,7 @@ async def create_recording(call: types.CallbackQuery, callback_data: dict):
             #  вывод сообщения и ссылки на чат с оператором в случае отсутствия прикрепления пациента к Валдаю
             chat = types.InlineKeyboardButton("Чат с оператором 💬", url='https://t.me/med122SupportBot')
             menu.add(chat, main_menu_item)
-            await call.message.edit_text(f"⚠️ {all_date.get('data').get('err_text')}.", reply_markup=menu)
+            await call.message.edit_text(f"⚠️ {all_date.get('data').get('err_text')}", reply_markup=menu)
 
         return
 
@@ -883,9 +963,9 @@ async def create_recording(call: types.CallbackQuery, callback_data: dict):
 
     # повторная авторизация, если необходимо
     rep_auth = await repeat_auth(call.message, all_date)
-    print(all_date)
+    # print(all_date)
     rep_auth_2 = await repeat_auth(call.message, pay_link)
-    print(pay_link)
+    # print(pay_link)
 
     if rep_auth == "Повторная авторизация" or rep_auth_2 == "Повторная авторизация":
         return
@@ -894,7 +974,7 @@ async def create_recording(call: types.CallbackQuery, callback_data: dict):
         #                                  callback_data['srv_id']))
         # print(mis_arianda.get_order_to_pay(db.use_token(call.message.chat.id), callback_data['rnumb_id'],
         #                                    callback_data['srv_id']))
-        print(pay_link)
+        # print(pay_link)
 
         payment_menu = types.InlineKeyboardMarkup(row_width=3)
         # pay_btn = types.InlineKeyboardButton("💳 Оплатить",
