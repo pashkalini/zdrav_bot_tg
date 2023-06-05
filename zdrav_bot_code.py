@@ -7,6 +7,7 @@ from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import StatesGroup, State
 from aiogram.types import ParseMode
 from aiogram.utils.callback_data import CallbackData
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 import config
 import logging
@@ -14,6 +15,8 @@ from aiogram import Bot, Dispatcher, executor, types
 import mis_arianda
 import db_postgre as db
 import warnings
+
+import apscheduler
 
 warnings.filterwarnings('ignore')
 
@@ -888,7 +891,7 @@ async def show_time_list(call: types.CallbackQuery, callback_data: dict):
 
 
 # используем фабрику коллбэков для передачи id талона
-rnumb_create_rec_cb = CallbackData('create_rec', 'stacId', 'srv_id', 'rnumb_id')
+rnumb_create_rec_cb = CallbackData('create_rec', 'stacId', 'srv_id', 'rnumb_id', 'visit_date')
 
 
 # 5. подтверждение записи - инфо о талоне
@@ -902,12 +905,19 @@ async def rec_confirmation(call: types.CallbackQuery, callback_data: dict):
     if rep_auth == "Повторная авторизация":
         return
     else:
+        # вычленяем дату визита для дальнейшей передачи в сервис напоминаний
+        visit_date = ()
+        for date in all_date:
+            visit_date = date.get('rnumb_dat_begin').split(' ')[0]
+
         confirm_rec = types.InlineKeyboardMarkup(row_width=3)
         confirm_btn = types.InlineKeyboardButton("✅ Записаться",
                                                  callback_data=rnumb_create_rec_cb.new(
                                                      stacId=callback_data['stacId'],
                                                      srv_id=callback_data['srv_id'],
-                                                     rnumb_id=callback_data['rec_rnumb_id']))
+                                                     rnumb_id=callback_data['rec_rnumb_id'],
+                                                     visit_date=visit_date
+                                                 ))
         cancel_btn = types.InlineKeyboardButton("❌ Отмена", callback_data='main_menu')
         confirm_rec.add(confirm_btn, cancel_btn)
 
@@ -950,6 +960,24 @@ async def create_recording(call: types.CallbackQuery, callback_data: dict):
                                          'Свои записи Вы можете найти в сервисе  <b>Мои записи</b> в Главном меню.\n\n'
                                          'За сутки до приёма вы получите напоминание о приеме. ',
                                          reply_markup=menu)
+
+            #  сохранение даты визита и информации о визите для сервиса напоминаний
+            all_rnumb_info = mis_arianda.get_rnumb_info(db.use_token(call.message.chat.id),
+                                                        callback_data['rnumb_id'])
+            for date in all_rnumb_info:
+                rec_info = (f"Ваша запись:\n"
+                            f"📅 {date.get('rnumb_dat_begin')}-{date.get('rnumb_dat_end').split(' ')[1]}\n"
+                            f"Талон №: {date.get('rnumb_id')}\n"
+                            f"🩺️ {date.get('rnumb_spec')}\n"
+                            f"👨‍⚕ {date.get('rnumb_doc_lname')} "
+                            f"{date.get('rnumb_doc_fname')} {date.get('rnumb_doc_sname')}\n"
+
+                            f"🏥 {date.get('rnumb_depname')}\n"
+                            f"📍 {date.get('rnumb_addr')}\n"
+                            f"Кабинет: {date.get('rnumb_cab')}\n"
+                            f"☎ {date.get('rnumb_phone')}\n\n")
+                db.save_visit_date(call.message.chat.id, callback_data['rnumb_id'], callback_data['visit_date'],
+                                   rec_info)
         else:
             #  вывод сообщения и ссылки на чат с оператором в случае отсутствия прикрепления пациента к Валдаю
             chat = types.InlineKeyboardButton("Чат с оператором 💬", url='https://t.me/med122SupportBot')
@@ -1105,5 +1133,61 @@ async def entry_code(call: types.CallbackQuery):
     await call.message.edit_text("Сервис находится в разработке 🛠️", reply_markup=to_main_menu)
 
 
+''' 2.5 - Сервис напоминаний'''
+
+scheduler = AsyncIOScheduler()
+
+
+# функция отправки текста уведомления
+async def send_notification(dp: Dispatcher):
+    # TODO подумать, нужно ли выводить информацию о визите в напоминании
+    # all_visits = []
+    # chat_ids = []
+    # for chat_id in db.check_visit_date():
+    #     visit_info = db.use_visit_info(chat_id[0])
+    #     for visit in visit_info:
+    #         if visit[0] in all_visits:
+    #             continue
+    #         else:
+    #             all_visits.append(visit[0])
+    #
+    #     menu = types.InlineKeyboardMarkup(row_width=1)
+    #     recs_btn = types.InlineKeyboardButton('МОИ ЗАПИСИ', callback_data='my_recordings')
+    #     menu.add(recs_btn, main_menu_item)
+    #     if chat_id[0] not in chat_ids:
+    #         await dp.bot.send_message(chat_id[0], "<b>🔔 Напоминаем, что на завтра Вы записаны к врачу.\n\n</b>"+"\n".join(all_visits) +
+    #                                               "Свои записи Вы можете найти в сервисе <b>Мои записи</b>.",
+    #                                   reply_markup=menu)
+    #     else:
+    #         continue
+    #     print(all_visits)
+    #     chat_ids.append(chat_id[0])
+
+    # db.delete_visit_date(chat_id[0])
+    menu = types.InlineKeyboardMarkup(row_width=1)
+    recs_btn = types.InlineKeyboardButton('МОИ ЗАПИСИ', callback_data='my_recordings')
+    menu.add(recs_btn, main_menu_item)
+    tmp = None
+    for chat_id in db.check_visit_date():
+        if tmp == chat_id[0]:
+            db.delete_visit_date(chat_id[0])
+            continue
+        else:
+            await dp.bot.send_message(chat_id[0], "<b>🔔 Напоминаем, что на завтра Вы записаны к врачу.\n\n</b>"
+                                                  "Свои записи Вы можете найти в сервисе <b>Мои записи</b>.",
+                                      reply_markup=menu)
+            tmp = chat_id[0]
+            db.delete_visit_date(chat_id[0])  # удаление из БД напоминаний после отправки
+
+
+# настройка отправки напоминаний по расписанию
+def scheduler_jobs():
+    scheduler.add_job(send_notification, "interval", seconds=15, args=(dp,))
+    scheduler.add_job(send_notification, 'cron', day_of_week='0-6', hour=9, minute=00, args=(dp,))
+    # scheduler.add_job(send_notification, 'cron', day_of_week='0-6', hour=12,  minute=48, args=(dp,))
+
+
 if __name__ == '__main__':
+    scheduler.start()
+    scheduler_jobs()
     executor.start_polling(dp, skip_updates=True)
